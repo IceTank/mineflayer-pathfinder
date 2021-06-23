@@ -86,6 +86,7 @@ function inject (bot) {
   }
   function resetPath (reason, clearStates = true) {
     if (path.length > 0) bot.emit('path_reset', reason)
+    fullStop()
     path = []
     if (digging) {
       bot.on('diggingAborted', detectDiggingStopped)
@@ -256,18 +257,21 @@ function inject (bot) {
     // The Bot approaches the edge while looking in the opposite direction from where it needs to go
     // The target Pitch angle is roughly the angle the bot has to look down for when it is in the position
     // to place the next block
-    const targetBlockPos = refBlock.offset(edge.x + 0.5, edge.y, edge.z + 0.5)
+    const targetBlockPos = refBlock.offset(edge.x + 0.5, 0, edge.z + 0.5)
     const targetPosDelta = bot.entity.position.clone().subtract(targetBlockPos)
     const targetYaw = Math.atan2(-targetPosDelta.x, -targetPosDelta.z)
     const targetPitch = -1.421
     const viewVector = getViewVector(targetPitch, targetYaw)
     // While the bot is not in the right position rotate the view and press back while crouching
-    if (bot.entity.position.distanceTo(refBlock.clone().offset(edge.x + 0.5, 1, edge.z + 0.5)) > 0.4) {
+    if (bot.entity.position.xzDistanceTo(refBlock.offset(edge.x + 0.5, 0, edge.z + 0.5)) > 0.4) {
       bot.lookAt(bot.entity.position.offset(viewVector.x, viewVector.y, viewVector.z), allowInstantTurn)
       bot.setControlState('sneak', true)
       bot.setControlState('back', true)
       return false
     }
+    // Prevent to bot from falling of the edge
+    if (Math.abs(bot.entity.position.x - ( refBlock.x + 0.5 ) + 0.8 * edge.x) > 0.8) bot.entity.position.x = refBlock.x + 0.5 + 0.79 * edge.x
+    if (Math.abs(bot.entity.position.z - ( refBlock.z + 0.5 ) + 0.8 * edge.z) > 0.8) bot.entity.position.z = refBlock.z + 0.5 + 0.79 * edge.z
     bot.setControlState('back', false)
     return true
   }
@@ -355,6 +359,25 @@ function inject (bot) {
     let nextPoint = path[0]
     const p = bot.entity.position
 
+    if (nextPoint.targetEdge && nextPoint.startingBlock) {
+      console.info('Special move')
+      if (distance(nextPoint.startingBlock.x, nextPoint.startingBlock.y + 1.6, nextPoint.startingBlock.z, bot.entity.position.x,  bot.entity.position.y,  bot.entity.position.z) > 2) {
+        fullStop()
+        resetPath('to_far_from_node')
+        return
+      }
+      if (!moveToEdge(new Vec3(nextPoint.startingBlock.x, nextPoint.startingBlock.y, nextPoint.startingBlock.z), new Vec3(nextPoint.targetEdge.x, nextPoint.targetEdge.z, nextPoint.targetEdge.y))) {
+        console.info('Edge not reached')
+        console.info('Starting', nextPoint.startingBlock, 'edge', nextPoint.targetEdge)
+        return
+      }
+      console.info('Reached edge')
+      bot.emit('goal_reached', stateGoal)
+      stateGoal = null
+      fullStop()
+      return
+    }
+
     // Handle digging
     if (digging || nextPoint.toBreak.length > 0) {
       if (!digging && bot.entity.onGround) {
@@ -387,27 +410,29 @@ function inject (bot) {
         return
       }
       if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.y === bot.entity.position.floored().y - 1 && placingBlock.dy === 0) {
+        console.info('MTEA', placingBlock)
         if (!moveToEdge(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), new Vec3(placingBlock.dx, 0, placingBlock.dz))) return
+        console.info('MTE', placingBlock)
       }
       let canPlace = true
       if (placingBlock.jump) {
         bot.setControlState('jump', true)
         canPlace = placingBlock.y + 1 < bot.entity.position.y
       }
+      bot.equip(block, 'hand', () => {})
+      if (!bot.heldItem || !stateMovements.scafoldingBlocks.includes(bot.heldItem.type)) return console.info('Item not equiped')
       if (canPlace) {
-        bot.equip(block, 'hand', function () {
-          const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
-          bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
-            placing = false
-            lastNodeTime = performance.now()
-            if (err) {
-              resetPath('place_error')
-            } else {
-              // Dont release Sneak if the block placement was not successful
-              if (!err) bot.setControlState('sneak', false)
-              if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
-            }
-          })
+        const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
+        bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
+          placing = false
+          lastNodeTime = performance.now()
+          if (err) {
+            resetPath('place_error')
+          } else {
+            // Dont release Sneak if the block placement was not successful
+            if (!err) bot.setControlState('sneak', false)
+            if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
+          }
         })
       }
       return
@@ -468,6 +493,10 @@ function inject (bot) {
       resetPath('stuck')
     }
   }
+}
+
+function distance(x1, y1, z1, x2, y2, z2) {
+  return Math.sqrt((x1 - x2) ^ 2 + (y1 - y2) ^ 2 + (z1 - z2) ^ 2)
 }
 
 function callbackify (f) {

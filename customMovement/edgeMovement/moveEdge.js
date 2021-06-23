@@ -1,6 +1,7 @@
+const Move = require('../../lib/move')
 const { Vec3 } = require('vec3')
 
-class Move extends Vec3 {
+class MoveEdge extends Move {
   /**
    * 
    * @param {number} x X
@@ -11,17 +12,15 @@ class Move extends Vec3 {
    * @param {Array} toBreak List of blocks to break. `{ x: number, y: number, z: number }`
    * @param {Array} toPlace List of blocks to place. `{ x: number, y: number, z: number, dx: number, dy: number, dz: number, jump: boolean }`
    * @param {boolean} parkour Parkour allowed or not (sprinting long jumps etc)
+   * @param {Object} targetEdge The target edge to move towards
+   * @param {Object} startingBlock Position of the block to start from
    */
-  constructor (x, y, z, remainingBlocks, cost, toBreak = [], toPlace = [], parkour = false) {
-    super(Math.floor(x), Math.floor(y), Math.floor(z))
-    this.remainingBlocks = remainingBlocks
-    this.cost = cost
-    this.toBreak = toBreak
-    this.toPlace = toPlace
-    this.parkour = parkour
-
-    this.hash = this.x + ',' + this.y + ',' + this.z
+  constructor(x, y, z, remainingBlocks, cost, toBreak = [], toPlace = [], parkour = false, targetEdge, startingBlock) {
+    super(x, y, z, remainingBlocks, cost, toBreak = [], toPlace = [], parkour = false)
+    this.disallowChildNodes = true
+    this.targetEdge = targetEdge
+    this.startingBlock = startingBlock
   }
 }
 
-module.exports = Move
+module.exports = MoveEdge
